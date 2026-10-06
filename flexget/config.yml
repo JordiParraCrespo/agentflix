@@ -1,0 +1,93 @@
+# FlexGet config: https://flexget.com/Configuration
+# Credentials are filled in from .env (see entrypoint.sh).
+variables: variables.yml
+
+# Run every 30 minutes. Add "download-series" once you've set an RSS feed below.
+schedules:
+  - tasks:
+      - sort-movies
+      - sort-series
+      - clean-transmission
+    interval:
+      minutes: 30
+
+templates:
+  transmission:
+    transmission:
+      host: transmission
+      port: 9091
+      username: '{? transmission.user ?}'
+      password: '{? transmission.password ?}'
+
+  # Finished downloads that are video files.
+  finished-videos:
+    filesystem:
+      path: /downloads/complete
+      recursive: yes
+      retrieve: files
+      regexp: '.*\.(avi|mkv|mp4)$'
+
+tasks:
+  # Watches an RSS feed of torrents and sends new episodes of your shows
+  # to Transmission. Set your feed URL and show names, then add this task
+  # to the schedule above.
+  download-series:
+    rss: https://example.com/your-tv-torrents.rss
+    template: transmission
+    regexp:
+      reject:
+        - x265
+    series:
+      settings:
+        default:
+          quality: 720p
+          propers: 12 hours
+      default:
+        - Example Show
+        - Another Show
+    transmission:
+      path: /downloads/complete
+
+  # Copies finished films to /media/movies/<Title> (<Year>)/
+  sort-movies:
+    template: finished-videos
+    metainfo_movie: yes
+    metainfo_series: yes
+    if:
+      - has_field('series_name'): reject
+      - not (has_field('movie_name') and has_field('movie_year')): reject
+    accept_all: yes
+    seen: local
+    exec:
+      auto_escape: yes
+      on_output:
+        for_accepted: sort-media.sh movie {{location}} {{movie_name}} {{movie_year}}
+
+  # Copies finished episodes to /media/series/<Show>/Season <N>/
+  sort-series:
+    template: finished-videos
+    metainfo_series: yes
+    if:
+      - not (has_field('series_name') and has_field('series_season')): reject
+    accept_all: yes
+    seen: local
+    exec:
+      auto_escape: yes
+      on_output:
+        for_accepted: sort-media.sh series {{location}} {{series_name}} {{series_season}}
+
+  # Removes torrents (and their downloaded files) once they've uploaded as
+  # much as they downloaded. The copies in /media are not touched.
+  clean-transmission:
+    from_transmission:
+      host: transmission
+      port: 9091
+      username: '{? transmission.user ?}'
+      password: '{? transmission.password ?}'
+      only_complete: yes
+    disable: [seen, seen_info]
+    if:
+      - transmission_ratio >= 1: accept
+    template: transmission
+    transmission:
+      action: purge

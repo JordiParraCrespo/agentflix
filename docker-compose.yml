@@ -1,20 +1,83 @@
+# Home media stack: Samba + Plex + Transmission + FlexGet.
+# All paths and passwords come from .env (copy .env.example first).
+
 services:
+  # File sharing: copy films into the server from any computer on your network.
+  samba:
+    image: dperson/samba
+    container_name: samba
+    environment:
+      - TZ=${TZ}
+      - USERID=${PUID}
+      - GROUPID=${PGID}
+      - USER=${SAMBA_USER};${SAMBA_PASSWORD}
+      - SHARE=media;/media;yes;no;no;${SAMBA_USER}
+      - SHARE2=torrents;/torrents;yes;no;no;${SAMBA_USER}
+    ports:
+      - "139:139"
+      - "445:445"
+    volumes:
+      - ${MEDIA}:/media
+      - ${STORAGE}/torrents:/torrents
+    restart: unless-stopped
+
+  # Your own Netflix: serves /media to TVs, phones, Chromecast and browsers.
   plex:
     image: lscr.io/linuxserver/plex:latest
     container_name: plex
-    network_mode: host          # simplest way for TVs/phones on the LAN to discover the server
+    # Host networking lets TVs and Chromecasts see Plex as a local server.
+    # Only works on Linux; on Mac/Windows use docker-compose.desktop.yml too.
+    network_mode: host
     environment:
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - TZ=${TZ:-Etc/UTC}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
       - VERSION=docker
-      - PLEX_CLAIM=${PLEX_CLAIM:-}   # optional, from https://plex.tv/claim (valid 4 minutes)
+      - PLEX_CLAIM=${PLEX_CLAIM:-}
     volumes:
-      - ./config:/config
-      - ${MEDIA_DIR:-./media}/movies:/movies
-      - ${MEDIA_DIR:-./media}/tv:/tv
-      - ${TRANSCODE_DIR:-./transcode}:/transcode
-    # Hardware transcoding (Intel iGPU): uncomment
+      - ${STORAGE}/plex/config:/config
+      - ${STORAGE}/plex/transcode:/transcode
+      - ${MEDIA}:/media
+    # Hardware transcoding (Intel/AMD GPU, needs Plex Pass): uncomment
     # devices:
     #   - /dev/dri:/dev/dri
+    restart: unless-stopped
+
+  # Torrent client with a web UI at http://SERVER_IP:9091
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    container_name: transmission
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - USER=${TRANSMISSION_USER}
+      - PASS=${TRANSMISSION_PASSWORD}
+    ports:
+      - "9091:9091"
+      - "51413:51413"
+      - "51413:51413/udp"
+    volumes:
+      - ${STORAGE}/transmission/config:/config
+      - ${STORAGE}/torrents:/downloads
+    restart: unless-stopped
+
+  # Automation: fetches new episodes from RSS, sorts finished downloads into
+  # /media for Plex, and removes torrents once they've seeded enough.
+  flexget:
+    build: ./flexget
+    container_name: flexget
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - TRANSMISSION_USER=${TRANSMISSION_USER}
+      - TRANSMISSION_PASSWORD=${TRANSMISSION_PASSWORD}
+    volumes:
+      - ./flexget/config.yml:/config/config.yml:ro
+      - ${STORAGE}/flexget:/data
+      - ${STORAGE}/torrents:/downloads
+      - ${MEDIA}:/media
+    depends_on:
+      - transmission
     restart: unless-stopped
