@@ -20,3 +20,7 @@ done
 
 chown -R "$PUID:$PGID" "$DATA" "$CONFIG"
 echo "Folders ready in $DATA and $CONFIG"
+
+if [ -d /dev/dri ]; then
+  echo "GPU found (/dev/dri): uncomment COMPOSE_FILE in .env for hardware transcoding."
+fi

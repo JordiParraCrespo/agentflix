@@ -24,8 +24,6 @@ services:
     ports:
       - "8096:8096"
       - "7359:7359/udp"   # lets apps on your network find the server
-    devices:
-      - /dev/dri:/dev/dri # GPU for hardware transcoding (remove if you have none)
     volumes:
       - ${CONFIG}/jellyfin:/config
       - ${DATA}/media:/data/media
@@ -90,7 +88,7 @@ services:
   # Proton VPN tunnel. qBittorrent uses this container's network, so it can
   # only reach the internet through the VPN. If the VPN drops, it's offline.
   gluetun:
-    image: qmcgaw/gluetun:latest
+    image: ghcr.io/qdm12/gluetun:latest
     container_name: gluetun
     cap_add:
       - NET_ADMIN
@@ -128,6 +126,7 @@ services:
     depends_on:
       gluetun:
         condition: service_healthy
+        restart: true # re-attach to the VPN whenever gluetun is recreated
     environment:
       <<: *env
       WEBUI_PORT: 8080

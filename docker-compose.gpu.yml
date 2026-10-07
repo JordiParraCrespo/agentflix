@@ -1,0 +1,6 @@
+# Gives Jellyfin the GPU for hardware transcoding (Intel Quick Sync / AMD VAAPI).
+# Enabled by uncommenting COMPOSE_FILE in .env; only on servers with /dev/dri.
+services:
+  jellyfin:
+    devices:
+      - /dev/dri:/dev/dri
