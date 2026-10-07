@@ -1,8 +1,0 @@
-# Override for Docker Desktop (Mac/Windows), where host networking isn't available:
-#   docker compose -f docker-compose.yml -f docker-compose.desktop.yml up -d
-services:
-  plex:
-    network_mode: bridge
-    hostname: plex
-    ports:
-      - "32400:32400"

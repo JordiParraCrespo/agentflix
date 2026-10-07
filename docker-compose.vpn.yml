@@ -1,0 +1,31 @@
+# Optional: send qBittorrent's traffic (and only that) through a VPN.
+#   docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
+# Fill in the VPN_* values in .env. Provider setup guides:
+#   https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers
+# In Sonarr/Radarr, the qBittorrent host becomes "gluetun" instead of "qbittorrent".
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      TZ: ${TZ}
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:-}
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:-}
+      WIREGUARD_ADDRESSES: ${WIREGUARD_ADDRESSES:-}
+      SERVER_COUNTRIES: ${VPN_SERVER_COUNTRIES:-}
+    ports:
+      - "8080:8080"       # qBittorrent web UI
+      - "6881:6881"
+      - "6881:6881/udp"
+    restart: unless-stopped
+
+  qbittorrent:
+    network_mode: service:gluetun
+    ports: !reset []
+    depends_on:
+      - gluetun

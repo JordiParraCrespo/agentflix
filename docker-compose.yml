@@ -1,83 +1,121 @@
-# Home media stack: Samba + Plex + Transmission + FlexGet.
-# All paths and passwords come from .env (copy .env.example first).
+# Home media server: Jellyfin + the *arr apps + qBittorrent + Seerr + Samba.
+# Settings come from .env (cp .env.example .env). Run ./setup.sh once first.
+#
+# Every app sees the same /data folder, so finished downloads are hardlinked
+# into the library: no copying, no double disk usage, and seeding continues.
+#
+#   /data/torrents/{movies,tv}   qBittorrent downloads here
+#   /data/media/{movies,tv}      your library (Jellyfin reads this)
+
+x-linuxserver: &linuxserver
+  environment: &env
+    PUID: ${PUID}
+    PGID: ${PGID}
+    TZ: ${TZ}
+  restart: unless-stopped
 
 services:
-  # File sharing: copy films into the server from any computer on your network.
+  # Media server: your own Netflix at http://SERVER_IP:8096
+  jellyfin:
+    <<: *linuxserver
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    ports:
+      - "8096:8096"
+      - "7359:7359/udp"   # lets apps on your network find the server
+    devices:
+      - /dev/dri:/dev/dri # Intel GPU for hardware transcoding
+    volumes:
+      - ${CONFIG}/jellyfin:/config
+      - ${DATA}/media:/data/media
+
+  # Request page for the family: http://SERVER_IP:5055
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: seerr
+    init: true
+    user: "${PUID}:${PGID}"
+    environment:
+      TZ: ${TZ}
+    ports:
+      - "5055:5055"
+    volumes:
+      - ${CONFIG}/seerr:/app/config
+    restart: unless-stopped
+
+  # Films: http://SERVER_IP:7878
+  radarr:
+    <<: *linuxserver
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    ports:
+      - "7878:7878"
+    volumes:
+      - ${CONFIG}/radarr:/config
+      - ${DATA}:/data
+
+  # Series: http://SERVER_IP:8989
+  sonarr:
+    <<: *linuxserver
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    ports:
+      - "8989:8989"
+    volumes:
+      - ${CONFIG}/sonarr:/config
+      - ${DATA}:/data
+
+  # Download sources (indexers) for Radarr and Sonarr: http://SERVER_IP:9696
+  prowlarr:
+    <<: *linuxserver
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    ports:
+      - "9696:9696"
+    volumes:
+      - ${CONFIG}/prowlarr:/config
+
+  # Subtitles: http://SERVER_IP:6767
+  bazarr:
+    <<: *linuxserver
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    ports:
+      - "6767:6767"
+    volumes:
+      - ${CONFIG}/bazarr:/config
+      - ${DATA}/media:/data/media
+
+  # Torrent client: http://SERVER_IP:8080
+  qbittorrent:
+    <<: *linuxserver
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      <<: *env
+      WEBUI_PORT: 8080
+      TORRENTING_PORT: 6881
+    ports:
+      - "8080:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    volumes:
+      - ${CONFIG}/qbittorrent:/config
+      - ${DATA}/torrents:/data/torrents
+
+  # Network folders: \\SERVER_IP\media and \\SERVER_IP\torrents
   samba:
-    image: dperson/samba
+    image: ghcr.io/servercontainers/samba:latest
     container_name: samba
     environment:
-      - TZ=${TZ}
-      - USERID=${PUID}
-      - GROUPID=${PGID}
-      - USER=${SAMBA_USER};${SAMBA_PASSWORD}
-      - SHARE=media;/media;yes;no;no;${SAMBA_USER}
-      - SHARE2=torrents;/torrents;yes;no;no;${SAMBA_USER}
+      ACCOUNT_media: ${SAMBA_PASSWORD}
+      UID_media: ${PUID}
+      AVAHI_DISABLE: "1"
+      WSDD2_DISABLE: "1"
+      SAMBA_VOLUME_CONFIG_media: "[media]; path = /data/media; valid users = media; guest ok = no; read only = no; browseable = yes"
+      SAMBA_VOLUME_CONFIG_torrents: "[torrents]; path = /data/torrents; valid users = media; guest ok = no; read only = no; browseable = yes"
     ports:
-      - "139:139"
       - "445:445"
     volumes:
-      - ${MEDIA}:/media
-      - ${STORAGE}/torrents:/torrents
-    restart: unless-stopped
-
-  # Your own Netflix: serves /media to TVs, phones, Chromecast and browsers.
-  plex:
-    image: lscr.io/linuxserver/plex:latest
-    container_name: plex
-    # Host networking lets TVs and Chromecasts see Plex as a local server.
-    # Only works on Linux; on Mac/Windows use docker-compose.desktop.yml too.
-    network_mode: host
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-      - VERSION=docker
-      - PLEX_CLAIM=${PLEX_CLAIM:-}
-    volumes:
-      - ${STORAGE}/plex/config:/config
-      - ${STORAGE}/plex/transcode:/transcode
-      - ${MEDIA}:/media
-    # Hardware transcoding (Intel/AMD GPU, needs Plex Pass): uncomment
-    # devices:
-    #   - /dev/dri:/dev/dri
-    restart: unless-stopped
-
-  # Torrent client with a web UI at http://SERVER_IP:9091
-  transmission:
-    image: lscr.io/linuxserver/transmission:latest
-    container_name: transmission
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-      - USER=${TRANSMISSION_USER}
-      - PASS=${TRANSMISSION_PASSWORD}
-    ports:
-      - "9091:9091"
-      - "51413:51413"
-      - "51413:51413/udp"
-    volumes:
-      - ${STORAGE}/transmission/config:/config
-      - ${STORAGE}/torrents:/downloads
-    restart: unless-stopped
-
-  # Automation: fetches new episodes from RSS, sorts finished downloads into
-  # /media for Plex, and removes torrents once they've seeded enough.
-  flexget:
-    build: ./flexget
-    container_name: flexget
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-      - TRANSMISSION_USER=${TRANSMISSION_USER}
-      - TRANSMISSION_PASSWORD=${TRANSMISSION_PASSWORD}
-    volumes:
-      - ./flexget/config.yml:/config/config.yml:ro
-      - ${STORAGE}/flexget:/data
-      - ${STORAGE}/torrents:/downloads
-      - ${MEDIA}:/media
-    depends_on:
-      - transmission
+      - ${DATA}:/data
     restart: unless-stopped
