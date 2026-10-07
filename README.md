@@ -12,13 +12,14 @@ appears in Jellyfin on your TV a little later, with subtitles.
 | **Sonarr** | Same for **series**, including new episodes as they air | `http://SERVER_IP:8989` |
 | **Prowlarr** | Manages download sources (indexers) for Radarr and Sonarr | `http://SERVER_IP:9696` |
 | **Bazarr** | Downloads subtitles in your languages | `http://SERVER_IP:6767` |
-| **qBittorrent** | Torrent client that does the downloading | `http://SERVER_IP:8080` |
+| **qBittorrent** | Torrent client, only reachable through **Proton VPN** | `http://SERVER_IP:8080` |
 | **Samba** | Network folders to copy your own files in | `\\SERVER_IP\media` |
 
 ```
 Seerr ──request──▶ Radarr / Sonarr ──search──▶ Prowlarr
                         │
                         ├──send torrent──▶ qBittorrent ──▶ /data/torrents
+                        │                  (inside Proton VPN)
                         │
                         └──hardlink + rename──▶ /data/media ──▶ Jellyfin ──▶ your TV
                                                     ▲
@@ -41,12 +42,32 @@ Any always-on computer works: a mini-PC, an old laptop or desktop, or a NAS.
    the library must share **one** disk (`DATA` in `.env`) so hardlinks work.
 4. Give the server a fixed IP in your router (look for "DHCP reservation").
 
-## 2. Configure and start
+## 2. Get your Proton VPN key
+
+qBittorrent runs inside a Proton VPN tunnel (using
+[gluetun](https://github.com/qdm12/gluetun)). It has no other way to the
+internet, so your real IP is never exposed to other peers, even if the VPN
+drops. The rest of the apps use your normal connection. A paid Proton plan is
+needed: the free plan doesn't allow P2P.
+
+1. Go to <https://account.proton.me/u/0/vpn/WireGuard>.
+2. Name it (e.g. `super-plex`), platform **GNU/Linux**, and under VPN options turn
+   **NAT-PMP (Port Forwarding)** **on**.
+3. Choose any server and click **Create**. Copy the `PrivateKey = ...` value.
+   This key works for every Proton server.
+4. You'll paste it into `WIREGUARD_PRIVATE_KEY` in `.env` in the next step.
+
+gluetun connects only to Proton's P2P servers, asks for a forwarded port, and
+sets it in qBittorrent automatically, so other peers can connect to you and
+downloads and seeding run at full speed.
+
+## 3. Configure and start
 
 ```bash
 git clone <this repo> super-plex && cd super-plex
 cp .env.example .env
-nano .env          # set DATA, CONFIG, PUID/PGID (from `id -u` / `id -g`), SAMBA_PASSWORD
+nano .env          # set DATA, CONFIG, PUID/PGID (from `id -u` / `id -g`),
+                   # SAMBA_PASSWORD and WIREGUARD_PRIVATE_KEY
 sudo ./setup.sh    # creates the folders with the right owner
 docker compose up -d
 docker compose ps  # everything should say "running"
@@ -54,14 +75,16 @@ docker compose ps  # everything should say "running"
 
 If something keeps restarting: `docker compose logs <name>`.
 
-## 3. Connect the apps (once, about 20 minutes)
+## 4. Connect the apps (once, about 20 minutes)
 
 Inside the stack, apps reach each other by name, e.g. `http://radarr:7878`.
 Set a login on each app the first time it asks.
 
 **qBittorrent** (`:8080`)
 1. User `admin`. The temporary password is in `docker compose logs qbittorrent`.
-   Set a new one in **Tools → Options → Web UI**.
+   In **Tools → Options → Web UI**, set a new password and tick
+   **Bypass authentication for clients on localhost**. That lets gluetun set
+   the forwarded port automatically.
 2. **Options → Downloads**: set **Default Torrent Management Mode** to
    **Automatic** and **Default Save Path** to `/data/torrents`. Torrents then
    land in `/data/torrents/movies` or `/data/torrents/tv` by category.
@@ -75,7 +98,7 @@ Set a login on each app the first time it asks.
 **Radarr** (`:7878`) and **Sonarr** (`:8989`), same steps in each:
 1. **Settings → Media Management → Add Root Folder**: `/data/media/movies`
    (Radarr) or `/data/media/tv` (Sonarr). Leave **Use Hardlinks** on.
-2. **Settings → Download Clients → qBittorrent**: host `qbittorrent`, port
+2. **Settings → Download Clients → qBittorrent**: host **`gluetun`**, port
    `8080`, your login, category `movies` (Radarr) or `tv` (Sonarr).
 3. **Settings → Profiles**: pick your quality (e.g. 1080p) and, under
    **Language**, Spanish/English/Any.
@@ -105,7 +128,7 @@ Set a login on each app the first time it asks.
 Done. Request something in Seerr and watch it go through the queues in Radarr
 or Sonarr, then appear in Jellyfin.
 
-## 4. Watch
+## 5. Watch
 
 Install **Jellyfin** on your TV (Android TV / Google TV, LG webOS, Samsung
 Tizen, Fire TV, Apple TV via Swiftfin or Infuse), phone or tablet, or open
@@ -134,16 +157,16 @@ Sonarr to rename and move them for you.
 on your phone or laptop. Then `http://SERVER_NAME:8096` works from anywhere,
 encrypted, without opening any port on your router. Free for personal use.
 
-**VPN for downloads.** To send only qBittorrent's traffic through a VPN, fill in
-the `VPN_*` values in `.env` (see the
-[gluetun provider guides](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers))
-and start with:
+**Check the VPN.** These should show a Proton IP, not your home IP, and the
+forwarded port:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
+docker compose exec qbittorrent curl -s https://ipinfo.io
+docker compose logs gluetun | grep -i "port forwarded"
 ```
 
-Then change the qBittorrent host in Radarr and Sonarr from `qbittorrent` to `gluetun`.
+If qBittorrent doesn't start, the VPN isn't connected: check
+`docker compose logs gluetun` (usually a missing or wrong `WIREGUARD_PRIVATE_KEY`).
 
 ## Maintenance
 

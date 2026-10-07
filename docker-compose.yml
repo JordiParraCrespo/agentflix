@@ -1,4 +1,5 @@
-# Home media server: Jellyfin + the *arr apps + qBittorrent + Seerr + Samba.
+# Home media server: Jellyfin + the *arr apps + qBittorrent (behind Proton VPN)
+# + Seerr + Samba.
 # Settings come from .env (cp .env.example .env). Run ./setup.sh once first.
 #
 # Every app sees the same /data folder, so finished downloads are hardlinked
@@ -86,19 +87,50 @@ services:
       - ${CONFIG}/bazarr:/config
       - ${DATA}/media:/data/media
 
+  # Proton VPN tunnel. qBittorrent uses this container's network, so it can
+  # only reach the internet through the VPN. If the VPN drops, it's offline.
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      TZ: ${TZ}
+      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:-}
+      SERVER_COUNTRIES: ${VPN_SERVER_COUNTRIES:-}
+      # Only P2P servers, with a forwarded port so other peers can reach you.
+      PORT_FORWARD_ONLY: "on"
+      VPN_PORT_FORWARDING: "on"
+      # Tell qBittorrent which port Proton forwarded (it changes each connection).
+      VPN_PORT_FORWARDING_UP_COMMAND: >-
+        /bin/sh -c 'wget -O- -nv --retry-connrefused --post-data
+        "json={\"listen_port\":{{PORT}},\"current_network_interface\":\"{{VPN_INTERFACE}}\",\"random_port\":false,\"upnp\":false}"
+        http://127.0.0.1:8080/api/v2/app/setPreferences'
+      VPN_PORT_FORWARDING_DOWN_COMMAND: >-
+        /bin/sh -c 'wget -O- -nv --retry-connrefused --post-data
+        "json={\"listen_port\":0,\"current_network_interface\":\"lo\"}"
+        http://127.0.0.1:8080/api/v2/app/setPreferences'
+    ports:
+      - "8080:8080" # qBittorrent web UI (lives inside this container's network)
+    restart: unless-stopped
+
   # Torrent client: http://SERVER_IP:8080
+  # Other apps reach it at host "gluetun", port 8080.
   qbittorrent:
     <<: *linuxserver
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
     environment:
       <<: *env
       WEBUI_PORT: 8080
-      TORRENTING_PORT: 6881
-    ports:
-      - "8080:8080"
-      - "6881:6881"
-      - "6881:6881/udp"
     volumes:
       - ${CONFIG}/qbittorrent:/config
       - ${DATA}/torrents:/data/torrents
