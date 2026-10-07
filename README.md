@@ -25,33 +25,20 @@ Seerr ──request──▶ Radarr / Sonarr ──search──▶ Prowlarr
                                           Bazarr adds subtitles
 ```
 
-## The hardware: Dell OptiPlex Micro
-
-A good choice for this: small, quiet, low power, and its Intel CPU has
-**Quick Sync**, a built-in video engine that lets Jellyfin convert video for
-any device without straining the CPU.
-
-- **Disks:** keep the SSD for the operating system and app settings (`CONFIG`).
-  Put films on a bigger drive (`DATA`), such as a USB 3 external disk or a larger
-  SSD in the 2.5" bay, with the OS on an M.2 NVMe if your model has the slot.
-  `DATA` must be **one** disk so downloads can be hardlinked into the library.
-- **BIOS** (F2 at boot): set **Power Management → AC Recovery → Power On**, so
-  it restarts by itself after a power cut.
-- **CPU generation** (run `lscpu | grep "Model name"` once Linux is installed):
-  6th gen (i5-6500T etc.) handles H.264 and 8-bit HEVC; 7th gen and newer also
-  handle 10-bit HEVC (most 4K files).
-
 ## 1. Install Linux and Docker
 
-1. Install **Ubuntu Server 24.04 LTS** (or Debian) on the SSD from a USB stick.
+Any always-on computer works: a mini-PC, an old laptop or desktop, or a NAS.
+
+1. Install **Ubuntu Server 24.04 LTS** (or Debian) from a USB stick.
    Enable "OpenSSH server" during install so you can manage it from your laptop.
 2. Install Docker:
    ```bash
    curl -fsSL https://get.docker.com | sh
    sudo usermod -aG docker $USER   # then log out and back in
    ```
-3. Plug in and mount the media disk, for example at `/srv/data`. Ubuntu's docs
-   explain how to add it to `/etc/fstab` so it mounts at boot.
+3. Mount the disk for your films, for example at `/srv/data`. Ubuntu's docs
+   explain how to add it to `/etc/fstab` so it mounts at boot. Downloads and
+   the library must share **one** disk (`DATA` in `.env`) so hardlinks work.
 4. Give the server a fixed IP in your router (look for "DHCP reservation").
 
 ## 2. Configure and start
@@ -101,10 +88,11 @@ Set a login on each app the first time it asks.
 **Jellyfin** (`:8096`)
 1. Create your admin user and add libraries: **Movies → `/data/media/movies`**,
    **Shows → `/data/media/tv`**. Preferred language: Spanish.
-2. **Hardware transcoding:** **Dashboard → Playback → Transcoding**, set
-   **Hardware acceleration** to **Intel QuickSync (QSV)**, then tick the codecs
-   your CPU supports (H264, HEVC, and on 7th gen+ also HEVC 10bit). If playback
-   fails, try **VAAPI** instead.
+2. **Hardware transcoding** (if your server has an Intel or AMD GPU):
+   **Dashboard → Playback → Transcoding**, set **Hardware acceleration** to
+   **Intel QuickSync (QSV)** or **VAAPI**, then tick the codecs your GPU
+   supports. Without a GPU, remove the `devices:` lines from the `jellyfin`
+   service in `docker-compose.yml`.
 3. Create a user for each person in the house.
 
 **Seerr** (`:5055`)

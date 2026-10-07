@@ -24,7 +24,7 @@ services:
       - "8096:8096"
       - "7359:7359/udp"   # lets apps on your network find the server
     devices:
-      - /dev/dri:/dev/dri # Intel GPU for hardware transcoding
+      - /dev/dri:/dev/dri # GPU for hardware transcoding (remove if you have none)
     volumes:
       - ${CONFIG}/jellyfin:/config
       - ${DATA}/media:/data/media
