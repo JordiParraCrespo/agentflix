@@ -1,4 +1,4 @@
-# super-plex
+# agentflix
 
 Your own Netflix at home, built on Jellyfin (free and open source) with
 automatic downloads. Search for a film or series, click **Request**, and it
@@ -51,7 +51,7 @@ drops. The rest of the apps use your normal connection. A paid Proton plan is
 needed: the free plan doesn't allow P2P.
 
 1. Go to <https://account.proton.me/u/0/vpn/WireGuard>.
-2. Name it (e.g. `super-plex`), platform **GNU/Linux**, and under VPN options turn
+2. Name it (e.g. `agentflix`), platform **GNU/Linux**, and under VPN options turn
    **NAT-PMP (Port Forwarding)** **on**.
 3. Choose any server and click **Create**. Copy the `PrivateKey = ...` value.
    This key works for every Proton server.
@@ -64,11 +64,12 @@ downloads and seeding run at full speed.
 ## 3. Configure and start
 
 ```bash
-git clone <this repo> super-plex && cd super-plex
+git clone https://github.com/JordiParraCrespo/agentflix.git && cd agentflix
 cp .env.example .env
 nano .env          # set DATA, CONFIG, PUID/PGID (from `id -u` / `id -g`),
                    # SAMBA_PASSWORD and WIREGUARD_PRIVATE_KEY
-sudo ./setup.sh    # creates the folders with the right owner
+sudo ./setup.sh    # creates the folders with the right owner (and tells you if
+                   # there's a GPU; if so, uncomment COMPOSE_FILE in .env)
 docker compose up -d
 docker compose ps  # everything should say "running"
 ```
@@ -114,13 +115,15 @@ Set a login on each app the first time it asks.
 2. **Hardware transcoding** (if your server has an Intel or AMD GPU):
    **Dashboard → Playback → Transcoding**, set **Hardware acceleration** to
    **Intel QuickSync (QSV)** or **VAAPI**, then tick the codecs your GPU
-   supports. Without a GPU, remove the `devices:` lines from the `jellyfin`
-   service in `docker-compose.yml`.
+   supports. This needs the GPU passed to Jellyfin: uncomment the
+   `COMPOSE_FILE` line in `.env` and run `docker compose up -d` again.
+   (It's off by default because Jellyfin won't start on a server without
+   `/dev/dri`.)
 3. Create a user for each person in the house.
 
 **Seerr** (`:5055`)
-1. Choose **Jellyfin**, server `http://jellyfin:8096`, sign in with your
-   Jellyfin admin.
+1. Choose **Jellyfin**, server `jellyfin`, port `8096`, and sign in with
+   your Jellyfin admin. Click **Sync Libraries**, then enable Movies and Shows.
 2. Add **Radarr** (`radarr`, 7878) and **Sonarr** (`sonarr`, 8989) with their
    API keys, root folders and quality profiles. Mark both as default.
 3. Import your Jellyfin users so the family can log in and make requests.
@@ -165,13 +168,21 @@ docker compose exec qbittorrent curl -s https://ipinfo.io
 docker compose logs gluetun | grep -i "port forwarded"
 ```
 
-If qBittorrent doesn't start, the VPN isn't connected: check
-`docker compose logs gluetun` (usually a missing or wrong `WIREGUARD_PRIVATE_KEY`).
+If qBittorrent doesn't start, the VPN isn't connected. That's on purpose:
+qBittorrent never runs outside the VPN. Check `docker compose logs gluetun`.
+`private key is not set` means `WIREGUARD_PRIVATE_KEY` is empty in `.env`, and
+repeated `i/o timeout` errors usually mean the key is wrong or expired.
+
+If qBittorrent's page stops loading after gluetun was restarted on its own
+(for example after a crash), run `docker compose up -d` or
+`docker compose restart qbittorrent`. qBittorrent lives inside gluetun's
+network and needs to re-attach to the new one.
 
 ## Maintenance
 
 ```bash
-docker compose pull && docker compose up -d   # update everything
+docker compose pull && docker compose up -d   # update everything (no service
+                                               # names, so qBittorrent follows gluetun)
 docker image prune -f                          # free space from old versions
 ```
 
