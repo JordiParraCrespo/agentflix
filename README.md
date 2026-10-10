@@ -79,9 +79,19 @@ so you can use any of these instead:
 - [AirVPN](https://airvpn.org/): supports port forwarding.
 - [IVPN](https://www.ivpn.net/): privacy-focused, no account email needed.
 
-To switch, change `VPN_SERVICE_PROVIDER` (and the related settings) for the
-`gluetun` service in `docker-compose.yml`, following the provider's page in the
-gluetun wiki.
+To switch, edit the `gluetun` service in `docker-compose.yml`:
+
+1. Set `VPN_SERVICE_PROVIDER` to `mullvad`, `airvpn` or `ivpn`.
+2. Delete `PORT_FORWARD_ONLY`, `VPN_PORT_FORWARDING`,
+   `VPN_PORT_FORWARDING_UP_COMMAND` and `VPN_PORT_FORWARDING_DOWN_COMMAND`.
+   They only work with Proton; with them left in, gluetun refuses to start and
+   qBittorrent never comes up.
+3. Add the WireGuard settings your provider's
+   [gluetun wiki page](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)
+   asks for (usually `WIREGUARD_ADDRESSES` as well as the private key).
+4. AirVPN only: create a port in AirVPN's client area, set it as
+   `FIREWALL_VPN_INPUT_PORTS` in gluetun, and enter the same port as the
+   listening port in qBittorrent (**Tools → Options → Connection**).
 
 ## 3. Configure and start
 
