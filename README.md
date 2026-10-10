@@ -4,6 +4,12 @@ Your own Netflix at home, built on Jellyfin (free and open source) with
 automatic downloads. Search for a film or series, click **Request**, and it
 appears in Jellyfin on your TV a little later, with subtitles.
 
+> [!WARNING]
+> **This project is for learning purposes only.** It shows how to put
+> together a self-hosted media stack with Docker. Do not use it to download
+> or share copyrighted or otherwise illegal content. Only download content
+> you have the right to, and respect the laws of your country.
+
 | App | What it does | Address |
 |---|---|---|
 | **Jellyfin** | Media server: streams your library to TV, phone, browser, Chromecast | `http://SERVER_IP:8096` |
@@ -60,6 +66,32 @@ needed: the free plan doesn't allow P2P.
 gluetun connects only to Proton's P2P servers, asks for a forwarded port, and
 sets it in qBittorrent automatically, so other peers can connect to you and
 downloads and seeding run at full speed.
+
+### Other VPN providers
+
+Proton VPN is just the default. gluetun supports
+[many other providers](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers),
+so you can use any of these instead:
+
+- [Mullvad](https://mullvad.net/): privacy-focused, no account email needed,
+  flat monthly price. It doesn't offer port forwarding, so downloads still
+  work but seeding and incoming connections are slower.
+- [AirVPN](https://airvpn.org/): supports port forwarding.
+- [IVPN](https://www.ivpn.net/): privacy-focused, no account email needed.
+
+To switch, edit the `gluetun` service in `docker-compose.yml`:
+
+1. Set `VPN_SERVICE_PROVIDER` to `mullvad`, `airvpn` or `ivpn`.
+2. Delete `PORT_FORWARD_ONLY`, `VPN_PORT_FORWARDING`,
+   `VPN_PORT_FORWARDING_UP_COMMAND` and `VPN_PORT_FORWARDING_DOWN_COMMAND`.
+   They only work with Proton; with them left in, gluetun refuses to start and
+   qBittorrent never comes up.
+3. Add the WireGuard settings your provider's
+   [gluetun wiki page](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)
+   asks for (usually `WIREGUARD_ADDRESSES` as well as the private key).
+4. AirVPN only: create a port in AirVPN's client area, set it as
+   `FIREWALL_VPN_INPUT_PORTS` in gluetun, and enter the same port as the
+   listening port in qBittorrent (**Tools → Options → Connection**).
 
 ## 3. Configure and start
 
