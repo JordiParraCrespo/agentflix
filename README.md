@@ -18,14 +18,14 @@ appears in Jellyfin on your TV a little later, with subtitles.
 | **Sonarr** | Same for **series**, including new episodes as they air | `http://SERVER_IP:8989` |
 | **Prowlarr** | Manages download sources (indexers) for Radarr and Sonarr | `http://SERVER_IP:9696` |
 | **Bazarr** | Downloads subtitles in your languages | `http://SERVER_IP:6767` |
-| **qBittorrent** | Torrent client, only reachable through **Proton VPN** | `http://SERVER_IP:8080` |
+| **qBittorrent** | Torrent client, only reaches the internet through **Mullvad VPN** | `http://SERVER_IP:8080` |
 | **Samba** | Network folders to copy your own files in | `\\SERVER_IP\media` |
 
 ```
 Seerr ──request──▶ Radarr / Sonarr ──search──▶ Prowlarr
                         │
                         ├──send torrent──▶ qBittorrent ──▶ /data/torrents
-                        │                  (inside Proton VPN)
+                        │                  (inside Mullvad VPN)
                         │
                         └──hardlink + rename──▶ /data/media ──▶ Jellyfin ──▶ your TV
                                                     ▲
@@ -48,50 +48,53 @@ Any always-on computer works: a mini-PC, an old laptop or desktop, or a NAS.
    the library must share **one** disk (`DATA` in `.env`) so hardlinks work.
 4. Give the server a fixed IP in your router (look for "DHCP reservation").
 
-## 2. Get your Proton VPN key
+## 2. Get your Mullvad VPN key
 
-qBittorrent runs inside a Proton VPN tunnel (using
-[gluetun](https://github.com/qdm12/gluetun)). It has no other way to the
-internet, so your real IP is never exposed to other peers, even if the VPN
-drops. The rest of the apps use your normal connection. A paid Proton plan is
-needed: the free plan doesn't allow P2P.
+qBittorrent, Prowlarr and Bazarr run inside a [Mullvad](https://mullvad.net/)
+VPN tunnel (using [gluetun](https://github.com/qdm12/gluetun)). They have no
+other way to the internet, so your real IP is never exposed to other peers,
+and your internet provider can't see what you download or which indexer and
+subtitle sites you search, even if the VPN drops. The rest of the apps use
+your normal connection.
 
-1. Go to <https://account.proton.me/u/0/vpn/WireGuard>.
-2. Name it (e.g. `agentflix`), platform **GNU/Linux**, and under VPN options turn
-   **NAT-PMP (Port Forwarding)** **on**.
-3. Choose any server and click **Create**. Copy the `PrivateKey = ...` value.
-   This key works for every Proton server.
-4. You'll paste it into `WIREGUARD_PRIVATE_KEY` in `.env` in the next step.
+1. Go to <https://mullvad.net/account/wireguard-config>.
+2. Choose **Linux** and click **Generate key**.
+3. Pick a country and one server, then **Download file**.
+4. Open the file. You'll paste two values into `.env` in the next step:
+   `PrivateKey` into `WIREGUARD_PRIVATE_KEY`, and the first (IPv4) value of
+   `Address`, e.g. `10.64.0.2/32`, into `WIREGUARD_ADDRESSES`. The key works
+   for every Mullvad server. Delete the file afterwards.
 
-gluetun connects only to Proton's P2P servers, asks for a forwarded port, and
-sets it in qBittorrent automatically, so other peers can connect to you and
-downloads and seeding run at full speed.
+Mullvad doesn't offer port forwarding, so other peers can't connect to you
+directly: downloads work normally, but seeding is slower.
 
 ### Other VPN providers
 
-Proton VPN is just the default. gluetun supports
+Mullvad is just the default. gluetun supports
 [many other providers](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers),
 so you can use any of these instead:
 
-- [Mullvad](https://mullvad.net/): privacy-focused, no account email needed,
-  flat monthly price. It doesn't offer port forwarding, so downloads still
-  work but seeding and incoming connections are slower.
+- [Proton VPN](https://protonvpn.com/): supports port forwarding, so seeding
+  runs at full speed. Needs a paid plan: the free plan doesn't allow P2P.
 - [AirVPN](https://airvpn.org/): supports port forwarding.
 - [IVPN](https://www.ivpn.net/): privacy-focused, no account email needed.
 
-To switch, edit the `gluetun` service in `docker-compose.yml`:
+To switch, set these in `.env` (no need to edit `docker-compose.yml`):
 
-1. Set `VPN_SERVICE_PROVIDER` to `mullvad`, `airvpn` or `ivpn`.
-2. Delete `PORT_FORWARD_ONLY`, `VPN_PORT_FORWARDING`,
-   `VPN_PORT_FORWARDING_UP_COMMAND` and `VPN_PORT_FORWARDING_DOWN_COMMAND`.
-   They only work with Proton; with them left in, gluetun refuses to start and
-   qBittorrent never comes up.
-3. Add the WireGuard settings your provider's
+1. `VPN_SERVICE_PROVIDER` to `protonvpn`, `airvpn` or `ivpn`.
+2. The WireGuard settings your provider's
    [gluetun wiki page](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)
-   asks for (usually `WIREGUARD_ADDRESSES` as well as the private key).
-4. AirVPN only: create a port in AirVPN's client area, set it as
-   `FIREWALL_VPN_INPUT_PORTS` in gluetun, and enter the same port as the
-   listening port in qBittorrent (**Tools → Options → Connection**).
+   asks for.
+3. Proton only: `VPN_PORT_FORWARDING=on`, and leave `WIREGUARD_ADDRESSES`
+   empty. Get the key at <https://account.proton.me/u/0/vpn/WireGuard>:
+   platform **GNU/Linux**, **NAT-PMP (Port Forwarding)** **on**, any standard
+   server, then copy the `PrivateKey` value. gluetun then connects only to
+   Proton's P2P servers, asks for a forwarded port, and sets it in qBittorrent
+   automatically.
+4. AirVPN only: create a port in AirVPN's client area, add it as
+   `FIREWALL_VPN_INPUT_PORTS` under `gluetun` in `docker-compose.yml`, and
+   enter the same port as the listening port in qBittorrent
+   (**Tools → Options → Connection**).
 
 ## 3. Configure and start
 
@@ -99,7 +102,8 @@ To switch, edit the `gluetun` service in `docker-compose.yml`:
 git clone https://github.com/JordiParraCrespo/agentflix.git && cd agentflix
 cp .env.example .env
 nano .env          # set DATA, CONFIG, PUID/PGID (from `id -u` / `id -g`),
-                   # SAMBA_PASSWORD and WIREGUARD_PRIVATE_KEY
+                   # SAMBA_PASSWORD, WIREGUARD_PRIVATE_KEY and
+                   # WIREGUARD_ADDRESSES
 sudo ./setup.sh    # creates the folders with the right owner (and tells you if
                    # there's a GPU; if so, uncomment COMPOSE_FILE in .env)
 docker compose up -d
@@ -192,11 +196,15 @@ Sonarr to rename and move them for you.
 on your phone or laptop. Then `http://SERVER_NAME:8096` works from anywhere,
 encrypted, without opening any port on your router. Free for personal use.
 
-**Check the VPN.** These should show a Proton IP, not your home IP, and the
-forwarded port:
+**Check the VPN.** This should show a Mullvad IP, not your home IP:
 
 ```bash
-docker compose exec qbittorrent curl -s https://ipinfo.io
+docker compose exec qbittorrent curl -s https://am.i.mullvad.net/connected
+```
+
+With a provider that forwards a port (Proton), this shows the port:
+
+```bash
 docker compose logs gluetun | grep -i "port forwarded"
 ```
 
@@ -205,10 +213,10 @@ qBittorrent never runs outside the VPN. Check `docker compose logs gluetun`.
 `private key is not set` means `WIREGUARD_PRIVATE_KEY` is empty in `.env`, and
 repeated `i/o timeout` errors usually mean the key is wrong or expired.
 
-If qBittorrent's page stops loading after gluetun was restarted on its own
-(for example after a crash), run `docker compose up -d` or
-`docker compose restart qbittorrent`. qBittorrent lives inside gluetun's
-network and needs to re-attach to the new one.
+If the qBittorrent, Prowlarr or Bazarr page stops loading after gluetun was
+restarted on its own (for example after a crash), run `docker compose up -d`
+or `docker compose restart qbittorrent prowlarr bazarr`. They live inside
+gluetun's network and need to re-attach to the new one.
 
 ## Maintenance
 

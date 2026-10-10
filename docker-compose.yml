@@ -1,4 +1,4 @@
-# Home media server: Jellyfin + the *arr apps + qBittorrent (behind Proton VPN)
+# Home media server: Jellyfin + the *arr apps + qBittorrent (behind a VPN)
 # + Seerr + Samba.
 # Settings come from .env (cp .env.example .env). Run ./setup.sh once first.
 #
@@ -14,6 +14,12 @@ x-linuxserver: &linuxserver
     PGID: ${PGID}
     TZ: ${TZ}
   restart: unless-stopped
+  # Cap container logs so they can never fill the disk.
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 
 services:
   # Media server: your own Netflix at http://SERVER_IP:8096
@@ -41,6 +47,7 @@ services:
     volumes:
       - ${CONFIG}/seerr:/app/config
     restart: unless-stopped
+    logging: *logging
 
   # Films: http://SERVER_IP:7878
   radarr:
@@ -65,12 +72,17 @@ services:
       - ${DATA}:/data
 
   # Download sources (indexers) for Radarr and Sonarr: http://SERVER_IP:9696
+  # Runs inside the VPN like qBittorrent, so searches on indexer sites never
+  # leave through the home connection.
   prowlarr:
     <<: *linuxserver
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
-    ports:
-      - "9696:9696"
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
     volumes:
       - ${CONFIG}/prowlarr:/config
 
@@ -79,14 +91,19 @@ services:
     <<: *linuxserver
     image: lscr.io/linuxserver/bazarr:latest
     container_name: bazarr
-    ports:
-      - "6767:6767"
+    # Inside the VPN too, so subtitle sites are not visible to the ISP.
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
     volumes:
       - ${CONFIG}/bazarr:/config
       - ${DATA}/media:/data/media
 
-  # Proton VPN tunnel. qBittorrent uses this container's network, so it can
-  # only reach the internet through the VPN. If the VPN drops, it's offline.
+  # VPN tunnel (Mullvad by default, see .env). qBittorrent, Prowlarr and
+  # Bazarr use this container's network, so they can only reach the internet
+  # through the VPN. If the VPN drops, they're offline.
   gluetun:
     image: ghcr.io/qdm12/gluetun:latest
     container_name: gluetun
@@ -96,14 +113,16 @@ services:
       - /dev/net/tun:/dev/net/tun
     environment:
       TZ: ${TZ}
-      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:-mullvad}
       VPN_TYPE: wireguard
       WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:-}
+      WIREGUARD_ADDRESSES: ${WIREGUARD_ADDRESSES:-}
       SERVER_COUNTRIES: ${VPN_SERVER_COUNTRIES:-}
-      # Only P2P servers, with a forwarded port so other peers can reach you.
-      PORT_FORWARD_ONLY: "on"
-      VPN_PORT_FORWARDING: "on"
-      # Tell qBittorrent which port Proton forwarded (it changes each connection).
+      # Port forwarding lets other peers reach you. Mullvad doesn't have it;
+      # set VPN_PORT_FORWARDING=on in .env for a provider that does (Proton).
+      PORT_FORWARD_ONLY: ${VPN_PORT_FORWARDING:-off}
+      VPN_PORT_FORWARDING: ${VPN_PORT_FORWARDING:-off}
+      # Tell qBittorrent which port was forwarded (it changes each connection).
       VPN_PORT_FORWARDING_UP_COMMAND: >-
         /bin/sh -c 'wget -O- -nv --retry-connrefused --post-data
         "json={\"listen_port\":{{PORT}},\"current_network_interface\":\"{{VPN_INTERFACE}}\",\"random_port\":false,\"upnp\":false}"
@@ -114,7 +133,17 @@ services:
         http://127.0.0.1:8080/api/v2/app/setPreferences'
     ports:
       - "8080:8080" # qBittorrent web UI (lives inside this container's network)
+      - "9696:9696" # Prowlarr web UI (same)
+      - "6767:6767" # Bazarr web UI (same)
+    # Prowlarr and Bazarr have no address of their own any more; keep their
+    # names working.
+    networks:
+      default:
+        aliases:
+          - prowlarr
+          - bazarr
     restart: unless-stopped
+    logging: *logging
 
   # Torrent client: http://SERVER_IP:8080
   # Other apps reach it at host "gluetun", port 8080.
@@ -150,3 +179,4 @@ services:
     volumes:
       - ${DATA}:/data
     restart: unless-stopped
+    logging: *logging
